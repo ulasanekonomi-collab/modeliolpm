@@ -1,70 +1,47 @@
 import streamlit as st
 import pandas as pd
-from modeliolpm_engine import process_model_iolpm
+from modeliolpm_engine import assemble_io_table_dynamic
 
-st.set_page_config(page_title="Model IOLPM Dashboard", layout="wide")
-st.title("📊 Dashboard Utama Model IO Lingkungan-Pasar-Moneter (MODEL IOLPM)")
-st.write("Inovasi Perencanaan Makro | Pengembang: **Kang Yuhka**")
+st.set_page_config(page_title="Model IOLPM - Dynamic Layer", layout="wide")
+st.title("📊 Layer Data Dinamis (MODEL IOLPM)")
+st.write("Inovasi Perencanaan Makroekonomi | Pengembang: **Yuhka Sundaya**")
 st.markdown("---")
 
 # ==========================================
-# SIDEBAR PANEL KONTROL INTERAKTIF
+# SIDEBAR PANEL PENGUNGGAHAN MODULAR
 # ==========================================
-st.sidebar.header("📁 DATA MASUKAN (INPUT)")
-uploaded_file = st.sidebar.file_uploader("Unggah CSV Tabel IO 17 Sektor BPS", type=["csv"])
+st.sidebar.header("📁 STRUKTUR DATA MASUKAN")
+st.sidebar.write("Unggah file CSV terpisah yang sudah dibersihkan:")
 
-st.sidebar.header("🌲 REZIM 1: INDIKATOR LINGKUNGAN")
-theta_air = st.sidebar.slider("Ketersediaan Air Bersih Wilayah", 0.1, 1.0, 1.0, 0.05)
-theta_lahan = st.sidebar.slider("Rasio Tutupan Lahan Hijau (RTH)", 0.1, 1.0, 1.0, 0.05)
-aqi_input = st.sidebar.slider("Indeks Kualitas Udara Real-time (AQI)", 20, 300, 50, 10)
-theta_udara_calc = 100.0 / aqi_input if aqi_input > 100 else 1.0
-
-st.sidebar.header("🏪 REZIM 2: DENSITAS POPULASI PASAR")
-status_harga = st.sidebar.selectbox("Pasar Primer (Stabilitas Harga Hulu)", ["Stabil", "Fluktuatif", "Spekulatif/Kacau"])
-utilisasi_mfg = st.sidebar.slider("Pasar Sekunder (Utilisasi Mesin Pabrik) %", 20, 100, 70, 5)
-kompetisi_jasa = st.sidebar.selectbox("Pasar Tersier (Kompetisi Sektor Jasa)", ["Rendah / Blue Ocean", "Padat / Kompetitif", "Perang Harga"])
+file_z = st.sidebar.file_uploader("1. Matriks Transaksi Antara (Z)", type=["csv"])
+file_p = st.sidebar.file_uploader("2. Matriks Input Primer (P)", type=["csv"])
+file_y = st.sidebar.file_uploader("3. Matriks Permintaan Akhir (Y)", type=["csv"])
 
 # ==========================================
-# PROSES SIMULASI KETIKA FILE DISEDIAKAN
+# PROSES SIMULASI DAN AUDIT STRUKTUR
 # ==========================================
-if uploaded_file is not None:
-    # Baris 31: Proses sinkronisasi penerimaan 7 variabel output dari engine
-    Z_prime, L_prime, multipliers, error_mode, theta_nat_calc, macro_indicators, sektor_names = process_model_iolpm(
-        uploaded_file, theta_air, theta_lahan, theta_udara_calc, status_harga, utilisasi_mfg, kompetisi_jasa
-    )
-    
-    # 1. Tampilkan Panel 5 Indikator Makro-Moneter
-    st.header("🎰 Indikator Dampak Makro-Moneter Terintegrasi")
-    m1, m2, m3, m4, m5 = st.columns(5)
-    
-    with m1:
-        st.metric(label="💰 PDB Nominal Sistem", value=f"Rp {macro_indicators['PDB Nominal Total']/1000:,.2f} M")
-    with m2:
-        st.metric(label="👥 Upah Pekerja (Rumah Tangga)", value=f"Rp {macro_indicators['Pendapatan Rumah Tangga']/1000:,.2f} M")
-    with m3:
-        st.metric(label="🏛️ Pajak Neto Pemerintah", value=f"Rp {macro_indicators['Penerimaan Pajak Neto']/1000:,.2f} M")
-    with m4:
-        st.metric(label="💨 Estimasi Volume Emisi", value=f"{macro_indicators['Indeks Emisi Polusi Efektif']:.2f} Ton")
-    with m5:
-        st.metric(label="🏦 Kebutuhan Uang Beredar (M2)", value=f"Rp {macro_indicators['Kebutuhan Uang Beredar (M2)']/1000:,.2f} M")
+if file_z and file_p and file_y:
+    try:
+        # Panggil fungsi perakit dinamis
+        df_io_complete, Z, P, Y, sektor_names, X_base = assemble_io_table_dynamic(file_z, file_p, file_y)
         
-    st.markdown("---")
-    
-    # 2. Pembagian Kolom Hasil Analisis Struktural
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("📋 Nilai Multiplier Output Hasil Relaksasi Model")
-        df_mult = pd.DataFrame({"Sektor Ekonomi BPS": sektor_names, "Daya Ungkit Multiplier": multipliers})
-        st.dataframe(df_mult.style.format({"Daya Ungkit Multiplier": "{:.4f}"}))
+        st.success("✅ **Konstruksi Data Dinamis Berhasil!** Nama sektor dan label indikator berhasil dibaca langsung dari file Anda.")
         
-    with col2:
-        st.subheader("🧠 Catatan Analisis & Kritik Kebijakan (Gödelian Mode)")
-        if error_mode:
-            st.error("🚨 **Paralisis Struktural Terjadi!** Sistem kehilangan konsistensi logis untuk mengeksekusi modal. Penambahan uang beredar tidak akan menghasilkan pertumbuhan riil karena jepitan krisis ganda alam dan pasar.")
-        else:
-            if aqi_input > 150:
-                st.warning("⚠️ **Stagflasi Biofisik Terdeteksi:** Nilai PDB terhitung naik semu karena lonjakan biaya transaksi akibat rusaknya ekosistem hulu. Hal ini menipu indikator moneter (M2 ikut membengkak palsu).")
-            if kompetisi_jasa == "Perang Harga":
-                st.info("ℹ️ **Erosi Sosial Tersier:** Kepadatan populasi usaha jasa memicu perang harga, menggerus kemampuan sektor tersier dalam mendistribusikan upah buruh secara optimal.")
+        # Metrik Deteksi Dimensi File Otomatis
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Jumlah Sektor Terdeteksi", f"{len(sektor_names)} Sektor Ekonomi")
+        c2.metric("Komponen Input Primer", f"{P.shape[0]} Indikator Baris")
+        c3.metric("Komponen Permintaan Akhir", f"{Y.shape[1]} Indikator Kolom")
+        
+        st.markdown("---")
+        
+        # Tampilkan DataFrame Hasil Konsolidasi Semuanya
+        st.header("📋 Hasil Konsolidasi Tabel Input-Output")
+        st.write("Seluruh label baris dan kolom di bawah ini bersifat dinamis mengikuti struktur teks asli file CSV Anda:")
+        
+        st.dataframe(df_io_complete.style.format("{:,.2f}"))
+        
+    except Exception as e:
+        st.error(f"🚨 **Kesalahan Pembacaan Elemen:** Pastikan format Kolom 1 adalah Kode dan Kolom 2 adalah Deskripsi Teks. Detail error: {e}")
 else:
-    st.info("👋 Selamat datang di MODEL IOLPM! Silakan unggah file CSV Tabel IO 17 Sektor BPS pada panel sidebar di sebelah kiri untuk melihat simulasi dampak makro-moneter.")
+    st.info("👋 Silakan unggah ketiga komponen berkas matriks terpisah pada panel sidebar di sebelah kiri untuk menguji sistem pembacaan nama sektor secara dinamis.")
