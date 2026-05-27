@@ -15,27 +15,15 @@ def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_h
     # Ambil matriks transaksi antara 17x17 (Baris 0-16, Kolom indeks 3 sampai 19)
     Z_base = df.iloc[0:17, 3:20].values.astype(float)
     
-    # Ambil baris Total Input/Output Domestik untuk pembagi koefisien teknis
-    # Berdasarkan struktur IO BPS, kita cari baris total di bagian bawah matriks transaksi antara
-    # Mencegah pembagian nol, jika ada nilai 0 diubah jadi 1.0
-    X_base = df.iloc[24, 3:20].values.astype(float)
+    # Ambil baris Total Input/Output Domestik (Sekarang pas di indeks 23)
+    X_base = df.iloc[23, 3:20].values.astype(float)
     X_base[X_base == 0] = 1.0 
     
-    # Ambil data kompensasi tenaga kerja (Baris Kode 2010) secara dinamis
-    # Kita cari baris yang kolom indeks 1-nya bernilai 2010 atau teks mengandung Kompensasi
-    row_upah = df[df[1].astype(str).str.contains('2010|Kompensasi', na=False, case=False)]
-    if not row_upah.empty:
-        upah_base = row_upah.iloc[0, 3:20].values.astype(float)
-    else:
-        # Fallback jika indeks bergeser
-        upah_base = df.iloc[21, 3:20].values.astype(float)
+    # Ambil data kompensasi tenaga kerja (Baris Kode 2010 -> indeks 18)
+    upah_base = df.iloc[18, 3:20].values.astype(float)
         
-    # Ambil data pajak kurang subsidi (Baris Kode 1900 atau sekitarnya)
-    row_pajak = df[df[1].astype(str).str.contains('1900|Pajak', na=False, case=False)]
-    if not row_pajak.empty:
-        pajak_base = row_pajak.iloc[0, 3:20].values.astype(float)
-    else:
-        pajak_base = df.iloc[19, 3:20].values.astype(float)
+    # Ambil data pajak kurang subsidi (Baris indeks 21)
+    pajak_base = df.iloc[21, 3:20].values.astype(float)
 
     # 2. Hitung Parameter Gubahan Model IOLPM
     # REZIM 1: Rata-rata geometris indikator alam
