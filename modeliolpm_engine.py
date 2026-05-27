@@ -4,26 +4,29 @@ import pandas as pd
 def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_harga, utilisasi, kompetisi):
     """
     Engine Komputasi Model IO Lingkungan-Pasar-Moneter (IOLPM)
-    Sudah Dikalibrasi Sesuai Baris Riil CSV BPS 2020
+    Sangat Tangguh: Otomatis Membersihkan Teks Silumen Seperti 'Konsumsi Rumah Tangga'
     """
     # 1. Membaca Data Mentah CSV BPS (Skip 3 baris judul teratas)
     df = pd.read_csv(file_path, skiprows=3, header=None)
     
-    # Ambil nama sektor dari baris indeks 0, kolom indeks 3 sampai 19
-    sektor_names = df.iloc[0, 3:20].tolist()
-    
-    # Matriks Transaksi Antara 17x17 berada di baris indeks 1 sampai 17, kolom indeks 3 sampai 19
+    # Ambil matriks transaksi antara 17x17 (Baris indeks 1 sampai 17, Kolom 3 sampai 19)
+    # Gunakan pd.to_numeric dengan errors='coerce' untuk mengubah teks nyasar secara paksa menjadi NaN, lalu diisi 0
     Z_base = df.iloc[1:18, 3:20].apply(pd.to_numeric, errors='coerce').fillna(0).values.astype(float)
     
     # Ambil baris Total Input / Output Domestik (X) yang berada di baris indeks 24
     X_row = df.iloc[24, 3:20].apply(pd.to_numeric, errors='coerce').fillna(1.0).values.astype(float)
-    X_base = np.where(X_row == 0, 1.0, X_row) # Proteksi pembagian nol
+    X_base = np.where(X_row == 0, 1.0, X_row) # Proteksi jika ada nilai 0 diubah jadi 1.0
     
     # Ambil data Kompensasi Tenaga Kerja (Kode 2010) di baris indeks 19
     upah_base = df.iloc[19, 3:20].apply(pd.to_numeric, errors='coerce').fillna(0).values.astype(float)
         
     # Ambil data Pajak Neto Kurang Subsidi di baris indeks 22
     pajak_base = df.iloc[22, 3:20].apply(pd.to_numeric, errors='coerce').fillna(0).values.astype(float)
+
+    # Nama Sektor Tetap untuk Label Grafik
+    sektor_names = ["Pertanian", "Pertambangan", "Manufaktur", "Listrik & Gas", "Air & Limbah", "Konstruksi", 
+                    "Perdagangan", "Transportasi", "Kuliner & Akomodasi", "Infokom", "Keuangan", "Real Estate", 
+                    "Jasa Perusahaan", "Pemerintahan", "Pendidikan", "Kesehatan", "Jasa Lainnya"]
 
     # 2. Hitung Parameter Gubahan Model IOLPM
     theta_nat = (theta_air * theta_lahan * theta_udara) ** (1/3)
@@ -38,9 +41,9 @@ def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_h
 
     # 3. Penyusunan Matriks Operator Relaksasi Omega (17x17)
     Omega = np.ones((17, 17))
-    Omega[0:2, :] *= f_nat * theta_mkt_primer # Baris Sektor Primer (Pertanian & Pertambangan)
-    Omega[:, 2:6] *= theta_mkt_sekunder       # Kolom Sektor Sekunder (Manufaktur s.d Konstruksi)
-    Omega[:, 6:17] *= theta_mkt_tersier       # Kolom Sektor Tersier (Jasa-jasa)
+    Omega[0:2, :] *= f_nat * theta_mkt_primer # Baris Sektor Primer
+    Omega[:, 2:6] *= theta_mkt_sekunder       # Kolom Sektor Sekunder
+    Omega[:, 6:17] *= theta_mkt_tersier       # Kolom Sektor Tersier
     
     # Asimilasi transaksi ter-relaksasi Z'
     Z_prime = Z_base * Omega
@@ -67,10 +70,10 @@ def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_h
         upah_distorted = upah_base * distorsi_faktor
         pajak_distorted = pajak_base * distorsi_faktor
         
-        # Indeks Polusi (Aktivitas ekstraktif hulu & industri manufaktur)
+        # Indeks Polusi (Aktivitas hulu & industri manufaktur)
         polusi_total = np.sum(Z_prime[0:2, :]) * (2.0 - theta_mkt_sekunder) * 0.000001
         
-        # Total Permintaan Akhir Nominal (diambil dari total kolom Kode 3090 BPS)
+        # Total Permintaan Akhir Nominal (diambil konstanta total kolom 3090 BPS)
         total_Y = 16980285.0
         
         PQ = np.sum(Z_prime) + total_Y
