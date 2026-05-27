@@ -2,28 +2,27 @@ import numpy as np
 import pandas as pd
 
 def process_pure_transaction_matrix(file_path):
-    """
-    Versi 'Anti-Peluru': 
-    Maca CSV, ngabersihan sadaya karakter non-angka, 
-    sarta otomatis ngadeteksi matriks 17x17.
-    """
-    # 1. Maca file
+    # Maca data tanpa ngandelkeun posisi kolom
     try:
-        df = pd.read_csv(file_path, sep=';', header=0)
+        df = pd.read_csv(file_path, sep=';')
     except:
-        df = pd.read_csv(file_path, sep=',', header=0)
+        df = pd.read_csv(file_path, sep=',')
     
-    # 2. Ambil 17 baris kahiji, sarta kolom angka (kolom ke-3 nepi ka ka-19)
-    # Gunakeun 'coerce' sangkan nu lain angka langsung robah jadi NaN (0)
-    data_asli = df.iloc[0:17, 2:19]
-    Z = data_asli.apply(pd.to_numeric, errors='coerce').fillna(0).values
+    # 1. Pastikeun urang ngan ukur nyokot kolom nu ngaranna '1' nepi ka '17'
+    # Ieu bakal otomatis ngabaékeun kolom '1800', '3011', jsb.
+    kolom_target = [str(i) for i in range(1, 18)]
     
-    # 3. Ngaran Sektor (Kolom ka-2 / indeks 1)
-    sektor_names = df.iloc[0:17, 1].astype(str).tolist()
+    # 2. Filter data (ngan ukur 17 baris kahiji jeung kolom 1-17)
+    df_data = df.set_index(df.columns[1]) # Ngaran sektor jadi index
+    Z = df_data[kolom_target].iloc[0:17]
     
-    # 4. Kalkulasi Dasar
-    df_result = pd.DataFrame(Z, index=sektor_names, columns=sektor_names)
-    df_result['TOTAL OUTPUT'] = Z.sum(axis=1)
-    df_result.loc['TOTAL INPUT'] = list(Z.sum(axis=0)) + [Z.sum()]
+    # Bersihkeun angka (hapus spasi, ganti koma jadi titik)
+    Z_numeric = Z.applymap(lambda x: float(str(x).replace(' ', '').replace(',', '.')) if pd.notnull(x) else 0.0)
     
-    return df_result, Z, sektor_names
+    # 3. Kalkulasi
+    Z_val = Z_numeric.values
+    df_result = Z_numeric.copy()
+    df_result['TOTAL OUTPUT'] = Z_val.sum(axis=1)
+    df_result.loc['TOTAL INPUT'] = list(Z_val.sum(axis=0)) + [Z_val.sum()]
+    
+    return df_result, Z_val, Z_numeric.index.tolist()
