@@ -8,8 +8,9 @@ def clean_val(x):
     """
     if pd.isna(x):
         return 0.0
+    # Hapus semua karakter spasi kosong di dalam sel angka
     s = str(x).strip().replace(' ', '')
-    if s == '-' or s == '' or s == '.' or s == ',':
+    if s == '-' or s == '' or s == '.' or s == ',' or s == ';;' or s == ';':
         return 0.0
     try:
         return float(s)
@@ -18,8 +19,7 @@ def clean_val(x):
 
 def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_harga, utilisasi, kompetisi):
     """
-    Engine Komputasi Model IOLPM V6 - Metode Filter String Dinamis
-    Mencegah Error Pergeseran Baris Kosong BPS secara Absolut
+    Engine Komputasi Model IOLPM V7 - Penyaringan Ketat Karakter Teks Siluman BPS
     """
     # 1. Membaca Data Mentah CSV BPS (Mendukung pembatas titik koma ';')
     try:
@@ -27,33 +27,33 @@ def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_h
     except:
         df = pd.read_csv(file_path, sep=',', header=None)
         
-    # Standardisasi seluruh kolom indeks 1 dan 2 menjadi string bersih untuk keperluan pencarian teks
+    # Bersihkan kolom indeks 1 (Kode) dan 2 (Nama Produk) dari spasi luar
     df[1] = df[1].astype(str).str.strip()
     df[2] = df[2].astype(str).str.strip()
     
     # --- EKSTRAKSI MATRIKS TRANSAKSI ANTARA (17 SEKTOR) ---
-    # Sektor 1-17 selalu terletak pada baris indeks 5 sampai 21 secara berurutan
+    # Sektor 1 sampai 17 selalu berada pada baris indeks 5 sampai 21 secara presisi
     Z_base = df.iloc[5:22, 3:20].applymap(clean_val).values.astype(float)
     
-    # --- PENCARIAN BARIS SATELIT MAKRO SECARA DINAMIS BERDASARKAN TEKS ---
+    # --- EKSTRAKSI BARIS SATELIT MAKRO SECARA AMAN ---
     
-    # A. Ekstraksi Baris Total Input / Output Domestik (X)
+    # A. Ekstraksi Baris Total Input (Mencari teks mengandung 'Total Input' atau kode '2100')
     row_X = df[df[2].str.contains('Total Input|Total Output', na=False, case=False) | (df[1] == '2100')]
     if not row_X.empty:
         X_row = row_X.iloc[-1, 3:20].apply(clean_val).values.astype(float)
     else:
-        # Jika pencarian string gagal, gunakan alternatif baris berkode 2100 atau baris terakhir yang berisi angka
+        # Jika pencarian teks gagal, ambil baris indeks 30 sebagai cadangan terakhir
         X_row = df.iloc[30, 3:20].apply(clean_val).values.astype(float)
     X_base = np.where(X_row == 0, 1.0, X_row)
 
-    # B. Ekstraksi Baris Kompensasi Tenaga Kerja / Upah
+    # B. Ekstraksi Baris Kompensasi Tenaga Kerja / Upah (Kode '2010')
     row_upah = df[df[2].str.contains('Kompensasi Tenaga Kerja|Upah', na=False, case=False) | (df[1] == '2010')]
     if not row_upah.empty:
         upah_base = row_upah.iloc[0, 3:20].apply(clean_val).values.astype(float)
     else:
         upah_base = df.iloc[23, 3:20].apply(clean_val).values.astype(float)
         
-    # C. Ekstraksi Baris Pajak Neto Kurang Subsidi atas Produk
+    # C. Ekstraksi Baris Pajak Neto Kurang Subsidi atas Produk (Kode '1950')
     row_pajak = df[df[2].str.contains('Pajak|Subsidi', na=False, case=False) | (df[1] == '1950')]
     if not row_pajak.empty:
         pajak_base = row_pajak.iloc[0, 3:20].apply(clean_val).values.astype(float)
