@@ -9,7 +9,7 @@ def clean_val(x):
     if pd.isna(x):
         return 0.0
     s = str(x).strip().replace(' ', '')
-    if s == '-' or s == '' or s == '.':
+    if s == '-' or s == '' or s == '.' or s == ',':
         return 0.0
     try:
         return float(s)
@@ -18,46 +18,31 @@ def clean_val(x):
 
 def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_harga, utilisasi, kompetisi):
     """
-    Engine Komputasi Model IOLPM V4 - Kalibrasi Kode Resmi BPS 2020
+    Engine Komputasi Model IOLPM V5 - Koordinat Absolut Terkalibrasi 100%
     """
-    # 1. Membaca Data Mentah CSV BPS (Mendukung pembatas titik koma ';')
+    # 1. Membaca Data Mentah CSV BPS (Menggunakan pemisah titik koma ';')
     try:
         df = pd.read_csv(file_path, sep=';', header=None)
     except:
         df = pd.read_csv(file_path, sep=',', header=None)
         
-    # Standardisasi kolom indeks 1 (Kode) menjadi string bersih tanpa spasi
-    df[1] = df[1].astype(str).str.strip()
+    # --- EKSTRAKSI ABSOLUT DATA MATRIKS DAN SATELIT MAKRO ---
+    # Berdasarkan struktur fisik berkas CSV BPS 17 Sektor Domestik:
     
-    # --- EKSTRAKSI MATRIKS TRANSAKSI ANTARA (17 SEKTOR) ---
-    # Berdasarkan struktur fisik CSV, 17 Sektor Utama terletak pada baris indeks 5 sampai 21
+    # Matriks Transaksi Antara 17x17 (Baris indeks 5 sampai 21, Kolom indeks 3 sampai 19)
     Z_base = df.iloc[5:22, 3:20].applymap(clean_val).values.astype(float)
     
-    # --- PENCARIAN DINAMIS BARIS SATELIT MAKRO BERDASARKAN KODE BPS ---
-    
-    # A. Baris Total Input / Output (Kode Resmi BPS: '2100')
-    row_X = df[df[1] == '2100']
-    if not row_X.empty:
-        X_row = row_X.iloc[0, 3:20].apply(clean_val).values.astype(float)
-    else:
-        X_row = df.iloc[30, 3:20].apply(clean_val).values.astype(float)
-    X_base = np.where(X_row == 0, 1.0, X_row)
+    # Baris Total Input / Output Domestik (X) berada tepat pada Baris Indeks 30
+    X_base = df.iloc[30, 3:20].apply(clean_val).values.astype(float)
+    X_base = np.where(X_base == 0, 1.0, X_base) # Proteksi pembagian nol
 
-    # B. Baris Kompensasi Tenaga Kerja / Upah (Kode Resmi BPS: '2010')
-    row_upah = df[df[1] == '2010']
-    if not row_upah.empty:
-        upah_base = row_upah.iloc[0, 3:20].apply(clean_val).values.astype(float)
-    else:
-        upah_base = df.iloc[26, 3:20].apply(clean_val).values.astype(float)
+    # Baris Kompensasi Tenaga Kerja / Upah berada tepat pada Baris Indeks 23
+    upah_base = df.iloc[23, 3:20].apply(clean_val).values.astype(float)
         
-    # C. Baris Pajak Neto Kurang Subsidi atas Produk (Kode Resmi BPS: '1950')
-    row_pajak = df[df[1] == '1950']
-    if not row_pajak.empty:
-        pajak_base = row_pajak.iloc[0, 3:20].apply(clean_val).values.astype(float)
-    else:
-        pajak_base = df.iloc[24, 3:20].apply(clean_val).values.astype(float)
+    # Baris Pajak Neto Kurang Subsidi atas Produk berada tepat pada Baris Indeks 22
+    pajak_base = df.iloc[22, 3:20].apply(clean_val).values.astype(float)
 
-    # Label Sektor Resmi untuk Keperluan Visualisasi Tabel dan Grafik
+    # Label Sektor Resmi untuk Keperluan Visualisasi Tabel Dasbor
     sektor_names = ["Pertanian", "Pertambangan", "Manufaktur", "Listrik & Gas", "Air & Limbah", "Konstruksi", 
                     "Perdagangan", "Transportasi", "Kuliner & Akomodasi", "Infokom", "Keuangan", "Real Estate", 
                     "Jasa Perusahaan", "Pemerintahan", "Pendidikan", "Kesehatan", "Jasa Lainnya"]
