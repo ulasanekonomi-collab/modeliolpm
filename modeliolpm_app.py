@@ -3,8 +3,8 @@ import pandas as pd
 from modeliolpm_engine import process_model_iolpm
 
 st.set_page_config(page_title="Model IOLPM Dashboard", layout="wide")
-st.title("📊 DASHBOARD MODEL IO LINGKUNGAN-PASAR-MONETER")
-st.write("Inovasi Perencanaan Makroekonomi | Pengembang: **Yuhka Sundaya**")
+st.title("📊 Dashboard Utama Model IO Lingkungan-Pasar-Moneter (MODEL IOLPM)")
+st.write("Inovasi Perencanaan Makro | Pengembang: **Kang Yuhka**")
 st.markdown("---")
 
 # ==========================================
