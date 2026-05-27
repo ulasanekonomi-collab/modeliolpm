@@ -18,29 +18,47 @@ def clean_val(x):
 
 def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_harga, utilisasi, kompetisi):
     """
-    Engine Komputasi Model IOLPM V5 - Koordinat Absolut Terkalibrasi 100%
+    Engine Komputasi Model IOLPM V6 - Metode Filter String Dinamis
+    Mencegah Error Pergeseran Baris Kosong BPS secara Absolut
     """
-    # 1. Membaca Data Mentah CSV BPS (Menggunakan pemisah titik koma ';')
+    # 1. Membaca Data Mentah CSV BPS (Mendukung pembatas titik koma ';')
     try:
         df = pd.read_csv(file_path, sep=';', header=None)
     except:
         df = pd.read_csv(file_path, sep=',', header=None)
         
-    # --- EKSTRAKSI ABSOLUT DATA MATRIKS DAN SATELIT MAKRO ---
-    # Berdasarkan struktur fisik berkas CSV BPS 17 Sektor Domestik:
+    # Standardisasi seluruh kolom indeks 1 dan 2 menjadi string bersih untuk keperluan pencarian teks
+    df[1] = df[1].astype(str).str.strip()
+    df[2] = df[2].astype(str).str.strip()
     
-    # Matriks Transaksi Antara 17x17 (Baris indeks 5 sampai 21, Kolom indeks 3 sampai 19)
+    # --- EKSTRAKSI MATRIKS TRANSAKSI ANTARA (17 SEKTOR) ---
+    # Sektor 1-17 selalu terletak pada baris indeks 5 sampai 21 secara berurutan
     Z_base = df.iloc[5:22, 3:20].applymap(clean_val).values.astype(float)
     
-    # Baris Total Input / Output Domestik (X) berada tepat pada Baris Indeks 30
-    X_base = df.iloc[30, 3:20].apply(clean_val).values.astype(float)
-    X_base = np.where(X_base == 0, 1.0, X_base) # Proteksi pembagian nol
+    # --- PENCARIAN BARIS SATELIT MAKRO SECARA DINAMIS BERDASARKAN TEKS ---
+    
+    # A. Ekstraksi Baris Total Input / Output Domestik (X)
+    row_X = df[df[2].str.contains('Total Input|Total Output', na=False, case=False) | (df[1] == '2100')]
+    if not row_X.empty:
+        X_row = row_X.iloc[-1, 3:20].apply(clean_val).values.astype(float)
+    else:
+        # Jika pencarian string gagal, gunakan alternatif baris berkode 2100 atau baris terakhir yang berisi angka
+        X_row = df.iloc[30, 3:20].apply(clean_val).values.astype(float)
+    X_base = np.where(X_row == 0, 1.0, X_row)
 
-    # Baris Kompensasi Tenaga Kerja / Upah berada tepat pada Baris Indeks 23
-    upah_base = df.iloc[23, 3:20].apply(clean_val).values.astype(float)
+    # B. Ekstraksi Baris Kompensasi Tenaga Kerja / Upah
+    row_upah = df[df[2].str.contains('Kompensasi Tenaga Kerja|Upah', na=False, case=False) | (df[1] == '2010')]
+    if not row_upah.empty:
+        upah_base = row_upah.iloc[0, 3:20].apply(clean_val).values.astype(float)
+    else:
+        upah_base = df.iloc[23, 3:20].apply(clean_val).values.astype(float)
         
-    # Baris Pajak Neto Kurang Subsidi atas Produk berada tepat pada Baris Indeks 22
-    pajak_base = df.iloc[22, 3:20].apply(clean_val).values.astype(float)
+    # C. Ekstraksi Baris Pajak Neto Kurang Subsidi atas Produk
+    row_pajak = df[df[2].str.contains('Pajak|Subsidi', na=False, case=False) | (df[1] == '1950')]
+    if not row_pajak.empty:
+        pajak_base = row_pajak.iloc[0, 3:20].apply(clean_val).values.astype(float)
+    else:
+        pajak_base = df.iloc[22, 3:20].apply(clean_val).values.astype(float)
 
     # Label Sektor Resmi untuk Keperluan Visualisasi Tabel Dasbor
     sektor_names = ["Pertanian", "Pertambangan", "Manufaktur", "Listrik & Gas", "Air & Limbah", "Konstruksi", 
@@ -60,9 +78,9 @@ def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_h
 
     # 3. Penyusunan Matriks Operator Relaksasi Omega (17x17)
     Omega = np.ones((17, 17))
-    Omega[0:2, :] *= f_nat * theta_mkt_primer # Pembatasan Baris Sektor Primer
-    Omega[:, 2:6] *= theta_mkt_sekunder       # Pembatasan Kolom Sektor Sekunder
-    Omega[:, 6:17] *= theta_mkt_tersier       # Pembatasan Kolom Sektor Tersier
+    Omega[0:2, :] *= f_nat * theta_mkt_primer 
+    Omega[:, 2:6] *= theta_mkt_sekunder       
+    Omega[:, 6:17] *= theta_mkt_tersier       
     
     # Asimilasi Transaksi Ter-Relaksasi Z'
     Z_prime = Z_base * Omega
@@ -90,7 +108,7 @@ def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_h
         pajak_distorted = pajak_base * distorsi_faktor
         
         polusi_total = np.sum(Z_prime[0:2, :]) * (2.0 - theta_mkt_sekunder) * 0.000001
-        total_Y = 16980285.0 # Estimasi Permintaan Akhir Agregat
+        total_Y = 16980285.0 
         
         PQ = np.sum(Z_prime) + total_Y
         V_assumed = 2.5
