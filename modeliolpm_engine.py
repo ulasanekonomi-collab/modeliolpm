@@ -1,131 +1,99 @@
 import numpy as np
 import pandas as pd
 
-def clean_val(x):
+def process_and_clean_csv(file_wrapper):
     """
-    Fungsi khusus untuk menghapus spasi di awal, akhir, serta spasi siluman
-    di tengah angka sebagai pemisah ribuan bawaan dari file CSV BPS.
+    Membaca file uploader Streamlit secara dinamis, mendeteksi delimiter,
+    dan membersihkan spasi internal pada angka tanpa menghilangkan label teks.
     """
-    if pd.isna(x):
+    try:
+        df = pd.read_csv(file_wrapper, sep=';')
+    except:
+        df = pd.read_csv(file_wrapper, sep=',')
+        
+    # Jika kolom pertama tidak sengaja terbaca sebagai indeks numerik biasa,
+    # pastikan kolom kode dan deskripsi berada di posisi kolom awal
+    df.columns = [str(col).strip() for col in df.columns]
+    
+    return df
+
+def clean_cell_value(val):
+    """
+    Mengubah sel data menjadi float murni dan membersihkan spasi ribuan.
+    """
+    if pd.isna(val):
         return 0.0
-    # Hapus semua karakter spasi kosong di dalam sel angka
-    s = str(x).strip().replace(' ', '')
-    if s == '-' or s == '' or s == '.' or s == ',' or s == ';;' or s == ';':
+    s = str(val).strip().replace(' ', '')
+    if s == '-' or s == '' or s == '.' or s == ',':
         return 0.0
     try:
         return float(s)
     except:
         return 0.0
 
-def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_harga, utilisasi, kompetisi):
+def assemble_io_table_dynamic(file_transaksi, file_primer, file_akhir):
     """
-    Engine Komputasi Model IOLPM V7 - Penyaringan Ketat Karakter Teks Siluman BPS
+    Merakit Tabel IO secara 100% dinamis berdasarkan label dan dimensi
+    dari ketiga file yang diunggah secara terpisah.
     """
-    # 1. Membaca Data Mentah CSV BPS (Mendukung pembatas titik koma ';')
-    try:
-        df = pd.read_csv(file_path, sep=';', header=None)
-    except:
-        df = pd.read_csv(file_path, sep=',', header=None)
-        
-    # Bersihkan kolom indeks 1 (Kode) dan 2 (Nama Produk) dari spasi luar
-    df[1] = df[1].astype(str).str.strip()
-    df[2] = df[2].astype(str).str.strip()
-    
-    # --- EKSTRAKSI MATRIKS TRANSAKSI ANTARA (17 SEKTOR) ---
-    # Sektor 1 sampai 17 selalu berada pada baris indeks 5 sampai 21 secara presisi
-    Z_base = df.iloc[5:22, 3:20].applymap(clean_val).values.astype(float)
-    
-    # --- EKSTRAKSI BARIS SATELIT MAKRO SECARA AMAN ---
-    
-    # A. Ekstraksi Baris Total Input (Mencari teks mengandung 'Total Input' atau kode '2100')
-    row_X = df[df[2].str.contains('Total Input|Total Output', na=False, case=False) | (df[1] == '2100')]
-    if not row_X.empty:
-        X_row = row_X.iloc[-1, 3:20].apply(clean_val).values.astype(float)
-    else:
-        # Jika pencarian teks gagal, ambil baris indeks 30 sebagai cadangan terakhir
-        X_row = df.iloc[30, 3:20].apply(clean_val).values.astype(float)
-    X_base = np.where(X_row == 0, 1.0, X_row)
+    # 1. Membaca Data Mentah
+    df_z_raw = process_and_clean_csv(file_transaksi)
+    df_p_raw = process_and_clean_csv(file_primer)
+    df_y_raw = process_and_clean_csv(file_akhir)
 
-    # B. Ekstraksi Baris Kompensasi Tenaga Kerja / Upah (Kode '2010')
-    row_upah = df[df[2].str.contains('Kompensasi Tenaga Kerja|Upah', na=False, case=False) | (df[1] == '2010')]
-    if not row_upah.empty:
-        upah_base = row_upah.iloc[0, 3:20].apply(clean_val).values.astype(float)
-    else:
-        upah_base = df.iloc[23, 3:20].apply(clean_val).values.astype(float)
-        
-    # C. Ekstraksi Baris Pajak Neto Kurang Subsidi atas Produk (Kode '1950')
-    row_pajak = df[df[2].str.contains('Pajak|Subsidi', na=False, case=False) | (df[1] == '1950')]
-    if not row_pajak.empty:
-        pajak_base = row_pajak.iloc[0, 3:20].apply(clean_val).values.astype(float)
-    else:
-        pajak_base = df.iloc[22, 3:20].apply(clean_val).values.astype(float)
-
-    # Label Sektor Resmi untuk Keperluan Visualisasi Tabel Dasbor
-    sektor_names = ["Pertanian", "Pertambangan", "Manufaktur", "Listrik & Gas", "Air & Limbah", "Konstruksi", 
-                    "Perdagangan", "Transportasi", "Kuliner & Akomodasi", "Infokom", "Keuangan", "Real Estate", 
-                    "Jasa Perusahaan", "Pemerintahan", "Pendidikan", "Kesehatan", "Jasa Lainnya"]
-
-    # 2. Perhitungan Parameter Gubahan Model IOLPM
-    theta_nat = (theta_air * theta_lahan * theta_udara) ** (1/3)
-    f_nat = 1.0 / theta_nat
+    # 2. Ekstraksi Label Secara Dinamis dari File
+    # Mengasumsikan Kolom 0 = Kode, Kolom 1 = Deskripsi, Kolom 2 dst = Data Angka
+    kolom_kode_z = df_z_raw.columns[0]
+    kolom_nama_z = df_z_raw.columns[1]
     
-    mapping_harga = {"Stabil": 1.0, "Fluktuatif": 0.75, "Spekulatif/Kacau": 0.50}
-    theta_mkt_primer = mapping_harga.get(status_harga, 1.0)
-    theta_mkt_sekunder = 1.0 - (utilisasi / 100.0) ** 2
+    kolom_kode_p = df_p_raw.columns[0]
+    kolom_nama_p = df_p_raw.columns[1]
     
-    mapping_jasa = {"Rendah / Blue Ocean": 1.0, "Padat / Kompetitif": 0.70, "Perang Harga": 0.35}
-    theta_mkt_tersier = mapping_jasa.get(kompetisi, 1.0)
+    kolom_kode_y = df_y_raw.columns[0]
+    kolom_nama_y = df_y_raw.columns[1]
 
-    # 3. Penyusunan Matriks Operator Relaksasi Omega (17x17)
-    Omega = np.ones((17, 17))
-    Omega[0:2, :] *= f_nat * theta_mkt_primer 
-    Omega[:, 2:6] *= theta_mkt_sekunder       
-    Omega[:, 6:17] *= theta_mkt_tersier       
+    # Ambil Nama Sektor (Baris) & Header Sektor (Kolom) dari Matriks Transaksi Antara
+    sektor_names = df_z_raw[kolom_nama_z].astype(str).str.strip().tolist()
+    sektor_headers = df_z_raw.columns[2:].strip().tolist() # Kolom 1 sampai 17
     
-    # Asimilasi Transaksi Ter-Relaksasi Z'
-    Z_prime = Z_base * Omega
+    # Ambil Nama Komponen Input Primer (Baris Bawah)
+    primer_names = df_p_raw[kolom_nama_p].astype(str).str.strip().tolist()
     
-    # 4. Perhitungan Koefisien Teknis A' & Invers Leontief L'
-    A_prime = np.zeros((17, 17))
-    for j in range(17):
-        A_prime[:, j] = Z_prime[:, j] / X_base[j]
-        
-    I = np.eye(17)
-    try:
-        L_prime = np.linalg.inv(I - A_prime)
-        error_mode = np.any(L_prime < 0) or np.any(np.isnan(L_prime))
-    except np.linalg.LinAlgError:
-        L_prime = np.zeros((17, 17))
-        error_mode = True
-        
-    multipliers = L_prime.sum(axis=0) if not error_mode else np.zeros(17)
+    # Ambil Nama Komponen Permintaan Akhir (Kolom Kanan)
+    akhir_headers = df_y_raw.columns[2:].strip().tolist()
 
-    # 5. Perhitungan Variabel Makroekonomi & Moneter (Pendekatan Fisher MV = PQ)
-    macro_indicators = {}
-    if not error_mode:
-        distorsi_faktor = np.array([1.0, 1.0] + [theta_mkt_sekunder]*4 + [theta_mkt_tersier]*11)
-        upah_distorted = upah_base * distorsi_faktor
-        pajak_distorted = pajak_base * distorsi_faktor
-        
-        polusi_total = np.sum(Z_prime[0:2, :]) * (2.0 - theta_mkt_sekunder) * 0.000001
-        total_Y = 16980285.0 
-        
-        PQ = np.sum(Z_prime) + total_Y
-        V_assumed = 2.5
-        uang_beredar = PQ / V_assumed
-        
-        macro_indicators = {
-            "PDB Nominal Total": np.sum(X_base * f_nat),
-            "Pendapatan Rumah Tangga": np.sum(upah_distorted),
-            "Penerimaan Pajak Neto": np.sum(pajak_distorted),
-            "Indeks Emisi Polusi Efektif": polusi_total,
-            "Kebutuhan Uang Beredar (M2)": uang_beredar
-        }
-    else:
-        macro_indicators = {
-            "PDB Nominal Total": 0.0, "Pendapatan Rumah Tangga": 0.0,
-            "Penerimaan Pajak Neto": 0.0, "Indeks Emisi Polusi Efektif": 0.0,
-            "Kebutuhan Uang Beredar (M2)": 0.0
-        }
+    # 3. Ekstraksi dan Pembersihan Matriks Angka
+    Z = df_z_raw.iloc[:, 2:].applymap(clean_cell_value).values.astype(float)
+    P = df_p_raw.iloc[:, 2:].applymap(clean_cell_value).values.astype(float)
+    Y = df_y_raw.iloc[:, 2:].applymap(clean_cell_value).values.astype(float)
 
-    return Z_prime, L_prime, multipliers, error_mode, theta_nat, macro_indicators, sektor_names
+    # 4. Rekonstruksi Komponen Penjumlahan Tabel IO
+    total_permintaan_antara = Z.sum(axis=1, keepdims=True)
+    total_permintaan_akhir = Y.sum(axis=1, keepdims=True)
+    total_output = total_permintaan_antara + total_permintaan_akhir
+
+    # 5. Perakitan Blok Horizontal Atas (Sektor x Seluruh Kolom)
+    # Susunan: [ Z | Total Antara | Y | Total Akhir | Total Output ]
+    blok_atas = np.hstack((Z, total_permintaan_antara, Y, total_permintaan_akhir, total_output))
+    
+    headers_lengkap = sektor_headers + ["Total Permintaan Antara"] + akhir_headers + ["Total Permintaan Akhir", "Total Output / Input"]
+    
+    df_io_tumpuk = pd.DataFrame(blok_atas, index=sektor_names, columns=headers_lengkap)
+
+    # 6. Perakitan Blok Vertikal Bawah (Input Primer)
+    # Tambahkan padding kosong di sebelah kanan matriks P agar sejajar dengan kolom Permintaan Akhir
+    padding_kanan = np.zeros((P.shape[0], blok_atas.shape[1] - Z.shape[1]))
+    blok_bawah_primer = np.hstack((P, padding_kanan))
+    
+    # Masukkan nilai Input Primer ke dalam DataFrame Utama
+    for i, nama_primer in enumerate(primer_names):
+        df_io_tumpuk.loc[nama_primer] = blok_bawah_primer[i]
+        
+    # Tambahkan baris penutup paling bawah: TOTAL INPUT
+    df_io_tumpuk.loc["TOTAL OUTPUT / INPUT"] = total_output.flatten()
+
+    # Hitung variabel X_base untuk keperluan invers matriks Leontief selanjutnya
+    X_base = total_output.flatten()
+    X_base = np.where(X_base == 0, 1.0, X_base)
+
+    return df_io_tumpuk, Z, P, Y, sektor_names, X_base
