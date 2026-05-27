@@ -1,47 +1,64 @@
 import numpy as np
 import pandas as pd
 
+def clean_val(x):
+    """
+    Fungsi khusus kanggo mupus spasi di awal, akhir, sarta spasi silumen 
+    di tengah angka salaku pemisah ribuan bawaan BPS.
+    """
+    if pd.isna(x):
+        return 0.0
+    s = str(x).strip().replace(' ', '')
+    if s == '-' or s == '' or s == '.':
+        return 0.0
+    try:
+        return float(s)
+    except:
+        return 0.0
+
 def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_harga, utilisasi, kompetisi):
     """
-    Engine Komputasi Model IOLPM V2 - Komputasi Dinamis Berbasis Kode BPS
-    Anti-Lolos dari Error String/Pergeseran Baris Excel
+    Engine Komputasi Model IOLPM V3 - Super Tangguh
+    Otomatis ngadeteksi delimiter (; ato ,) sareng ngabersihan spasi ribuan.
     """
-    # 1. Membaca Data Mentah CSV BPS
-    df = pd.read_csv(file_path, skiprows=3, header=None)
-    
-    # Bersihkan kolom indeks 1 (Kode) menjadi string bersih agar mudah dicari
+    # 1. Membaca Data Mentah CSV BPS (Cobi titik koma heula, upami gagal nganggo koma)
+    try:
+        df = pd.read_csv(file_path, sep=';', header=None)
+    except:
+        df = pd.read_csv(file_path, sep=',', header=None)
+        
+    # Bersihkan kolom indeks 1 (Kode) janten string beresih supados gampil dipilari
     df[1] = df[1].astype(str).str.strip()
     
     # --- PROSES EKSTRAKSI MATRIKS TRANSAKSI ANTARA (17 SEKTOR) ---
-    # Sektor 1 sampai 17 selalu berada di 17 baris pertama setelah skiprows
-    Z_base = df.iloc[1:18, 3:20].apply(pd.to_numeric, errors='coerce').fillna(0).values.astype(float)
+    # Sektor 1 dugi ka 17 linggih dina baris indeks 5 dugi ka 21 sacara presisi
+    Z_base = df.iloc[5:22, 3:20].applymap(clean_val).values.astype(float)
     
-    # --- PROSES PENCARIAN DINAMIS BARIS SATELIT MAKRO ---
+    # --- PROSES PENCARIAN DINAMIS BARIS SATELIT MAKRO VIA KODE BPS ---
     
-    # A. Cari Baris Total Input (Kode 2500 atau teks 'Total Input')
-    row_X = df[df[1].str.contains('2500|Total Input', na=False, case=False)]
+    # A. Pilari Baris Total Input (Kode Kode 2100)
+    row_X = df[df[1] == '2100']
     if not row_X.empty:
-        X_row = row_X.iloc[0, 3:20].apply(pd.to_numeric, errors='coerce').fillna(1.0).values.astype(float)
+        X_row = row_X.iloc[0, 3:20].apply(clean_val).values.astype(float)
     else:
-        # Fallback jika kode tidak ketemu, ambil baris paling terakhir dari dataframe
-        X_row = df.iloc[-1, 3:20].apply(pd.to_numeric, errors='coerce').fillna(1.0).values.astype(float)
+        X_row = df.iloc[30, 3:20].apply(clean_val).values.astype(float)
     X_base = np.where(X_row == 0, 1.0, X_row)
 
-    # B. Cari Baris Kompensasi Tenaga Kerja (Kode 2010)
-    row_upah = df[df[1].str.contains('2010|Kompensasi', na=False, case=False)]
+    # B. Pilari Baris Kompensasi Tenaga Kerja (Kode Kode 2010)
+    row_upah = df[df[1] == '2010']
     if not row_upah.empty:
-        upah_base = row_upah.iloc[0, 3:20].apply(pd.to_numeric, errors='coerce').fillna(0).values.astype(float)
+        upah_base = row_upah.iloc[0, 3:20].apply(clean_val).values.astype(float)
     else:
-        upah_base = df.iloc[19, 3:20].apply(pd.to_numeric, errors='coerce').fillna(0).values.astype(float)
+        upah_base = df.iloc[26, 3:20].apply(clean_val).values.astype(float)
         
-    # C. Cari Baris Pajak Neto Kurang Subsidi (Kode 2100 atau 1900)
-    row_pajak = df[df[1].str.contains('2100|1900|Pajak', na=False, case=False)]
+    # C. Pilari Baris Pajak Neto Kurang Subsidi atas Produk (Kode Kode 1950)
+    row_pajak = df[df[1] == '1950']
     if not row_pajak.empty:
-        pajak_base = row_pajak.iloc[0, 3:20].apply(pd.to_numeric, errors='coerce').fillna(0).values.astype(float)
+        pajak_base = row_pajak.iloc[0, 3:20].apply(clean_val).values.astype(float)
     else:
-        pajak_base = df.iloc[22, 3:20].apply(pd.to_numeric, errors='coerce').fillna(0).values.astype(float)
+        pajak_base = df.iloc[24, 3:20].apply(clean_val).values.astype(float)
 
-    # Nama Label Sektor untuk Komponen Antarmuka
+    # Nama Label Sektor resmi kanggo antarmuka dashboard
     sektor_names = ["Pertanian", "Pertambangan", "Manufaktur", "Listrik & Gas", "Air & Limbah", "Konstruksi", 
                     "Perdagangan", "Transportasi", "Kuliner & Akomodasi", "Infokom", "Keuangan", "Real Estate", 
                     "Jasa Perusahaan", "Pemerintahan", "Pendidikan", "Kesehatan", "Jasa Lainnya"]
@@ -63,7 +80,7 @@ def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_h
     Omega[:, 2:6] *= theta_mkt_sekunder       # Kolom Sektor Sekunder
     Omega[:, 6:17] *= theta_mkt_tersier       # Kolom Sektor Tersier
     
-    # Jalankan proses Asimilasi Transaksi
+    # Jalankan proses Asimilasi Transaksi nominal anyar
     Z_prime = Z_base * Omega
     
     # 4. Hitung Koefisien Teknis A' & Invers Leontief L'
@@ -89,7 +106,7 @@ def process_model_iolpm(file_path, theta_air, theta_lahan, theta_udara, status_h
         pajak_distorted = pajak_base * distorsi_faktor
         
         polusi_total = np.sum(Z_prime[0:2, :]) * (2.0 - theta_mkt_sekunder) * 0.000001
-        total_Y = 16980285.0
+        total_Y = 16980285.0 # Konstanta total panungtung kolom 3090 BPS
         
         PQ = np.sum(Z_prime) + total_Y
         V_assumed = 2.5
