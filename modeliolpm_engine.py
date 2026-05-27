@@ -1,68 +1,30 @@
 import numpy as np
 import pandas as pd
 
-def process_and_clean_csv(file_wrapper):
+def process_isolated_matrix(file_path):
     """
-    Membaca file uploader Streamlit dan mendeteksi pembatas (delimiter) otomatis.
+    Hanya membaca 17x17 data transaksi murni.
     """
+    # Membaca CSV dengan deteksi delimiter
     try:
-        df = pd.read_csv(file_wrapper, sep=';')
+        df = pd.read_csv(file_path, sep=';')
     except:
-        df = pd.read_csv(file_wrapper, sep=',')
-        
-    df.columns = [str(col).strip() for col in df.columns]
-    return df
-
-def clean_cell_value(val):
-    """
-    Mengubah sel data menjadi float murni dan menghapus spasi ribuan (siluman).
-    """
-    if pd.isna(val):
-        return 0.0
-    s = str(val).strip().replace(' ', '')
-    if s == '-' or s == '' or s == '.' or s == ',':
-        return 0.0
-    try:
-        return float(s)
-    except:
-        return 0.0
-
-def process_pure_transaction_matrix(file_transaksi):
-    """
-    Modul Tahap 1: Hanya memproses Matriks Transaksi Antara (Z) 17x17
-    dan memasangkan kode kolom dengan deskripsi nama sektor asli.
-    """
-    df_raw = process_and_clean_csv(file_transaksi)
+        df = pd.read_csv(file_path, sep=',')
     
-    # Identifikasi Kolom secara dinamis (Kolom 0 = Kode, Kolom 1 = Deskripsi)
-    kolom_kode = df_raw.columns[0]
-    kolom_nama = df_raw.columns[1]
+    # 1. Ambil Nama Sektor (Kolom ke-2, indeks 1)
+    sektor_names = df.iloc[0:17, 1].astype(str).str.strip().tolist()
     
-    # Ekstraksi nama deskripsi sektor (17 Sektor pertama)
-    sektor_names = df_raw.iloc[0:17, 1].astype(str).str.strip().tolist()
+    # 2. Ambil Matriks Transaksi 17x17 murni 
+    # Kita kunci mulai dari kolom indeks 2 sampai 18 (total 17 kolom)
+    Z = df.iloc[0:17, 2:19].applymap(lambda x: float(str(x).replace(' ', '').replace(',', '.')) if pd.notnull(x) else 0.0).values
     
-    # Ekstraksi matriks angka transaksi murni (17 baris x 17 kolom data angka mulai kolom ke-3)
-    Z = df_raw.iloc[0:17, 2:19].applymap(clean_cell_value).values.astype(float)
+    # 3. Hitung Agregat
+    total_output = Z.sum(axis=1)
+    total_input = Z.sum(axis=0)
     
-    # --- KALKULASI AGREGAT DASAR ---
-    # 1. Total Output Antara (Jumlah Baris Sektor secara Horizontal)
-    total_output_antara = Z.sum(axis=1)
+    # 4. Buat DataFrame untuk Streamlit
+    df_result = pd.DataFrame(Z, index=sektor_names, columns=sektor_names)
+    df_result['TOTAL OUTPUT'] = total_output
+    df_result.loc['TOTAL INPUT'] = list(total_input) + [total_input.sum()]
     
-    # 2. Total Input Antara (Jumlah Kolom Sektor secara Vertikal)
-    total_input_antara = Z.sum(axis=0)
-    
-    # --- PEMBUATAN TABEL PAIRING UNTUK VISUALISASI ---
-    # Buat nama kolom baru gabungan: "1. Pertanian", "2. Pertambangan", dst.
-    kolom_pairing = [f"{i+1}. {sektor_names[i]}" for i in range(17)]
-    
-    # Masukkan matriks Z ke DataFrame dengan indeks dan header yang sudah dipasangkan
-    df_z_display = pd.DataFrame(Z, index=kolom_pairing, columns=kolom_pairing)
-    
-    # Tambahkan Kolom Tambahan: Total Output Antara (Horizontal)
-    df_z_display["TOTAL OUTPUT ANTARA (Row Sum)"] = total_output_antara
-    
-    # Tambahkan Baris Tambahan di paling bawah: Total Input Antara (Vertical Sum)
-    baris_input_total = list(total_input_antara) + [total_input_antara.sum()]
-    df_z_display.loc["TOTAL INPUT ANTARA (Col Sum)"] = baris_input_total
-    
-    return df_z_display, Z, sektor_names
+    return df_result, Z, sektor_names
